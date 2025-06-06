@@ -55,8 +55,8 @@ class VideoService:
         """Set up FFmpeg configuration."""
         # ... existing code ...
 
-    def _create_subtitle_clip(self, text: str, duration: float, size: tuple) -> TextClip:
-        """Create a subtitle clip with the given text and duration.
+    def _create_subtitle_clip(self, text: str, duration: float, size: tuple) -> VideoClip:
+        """Create an animated subtitle clip where each word is highlighted sequentially.
         
         Args:
             text: The subtitle text
@@ -64,28 +64,87 @@ class VideoService:
             size: Size of the video (width, height)
             
         Returns:
-            TextClip: The subtitle clip
+            VideoClip: The animated subtitle clip
         """
-        # Font size: 6% of video height (between 5% and 7%)
-        font_size = int(size[1] * 0.06)
-
-        # Subtitle vertical position: 75px from the bottom
-        subtitle_clip = TextClip(
-            text,
-            fontsize=font_size,
-            color='white',
-            font='Arial-Bold',
-            stroke_color='black',
-            stroke_width=2,
-            method='caption',
-            size=(size[0] * 0.9, None)  # Optional: wrap text slightly within screen width
-        )
-
-        subtitle_clip = subtitle_clip.set_position(('center', size[1] - 75))
-        subtitle_clip = subtitle_clip.set_duration(duration)
-
-        return subtitle_clip
-
+        # Calculate font sizes
+        base_fontsize = int(size[1] * 0.06)  # 6% of video height
+        highlight_fontsize = int(size[1] * 0.13)  # 13% of video height
+        
+        # Split text into words
+        words = text.split()
+        word_duration = 0.2  # 200ms per word
+        total_time = 0
+        
+        # First, calculate total width of all words to center the sentence
+        word_widths = []
+        total_width = 0
+        for word in words:
+            # Create temporary clip to measure width
+            temp_clip = TextClip(
+                word,
+                fontsize=base_fontsize,
+                font='Arial-Bold',
+                method='caption'
+            )
+            word_widths.append(temp_clip.w)
+            total_width += temp_clip.w
+        
+        # Add spacing between words
+        total_width += (len(words) - 1) * 20  # 20px spacing between words
+        
+        # Calculate starting x position to center the entire sentence
+        start_x = (size[0] - total_width) // 2
+        
+        # Create clips for each word
+        word_clips = []
+        current_x = start_x  # Start from the calculated center position
+        
+        for i, word in enumerate(words):
+            # Create normal word clip
+            normal_clip = TextClip(
+                word,
+                fontsize=base_fontsize,
+                color='white',
+                font='Arial-Bold',
+                stroke_color='black',
+                stroke_width=2,
+                method='caption'
+            )
+            
+            # Create highlighted version
+            highlight_clip = TextClip(
+                word,
+                fontsize=highlight_fontsize,
+                color='yellow',
+                font='Arial-Bold',
+                stroke_color='black',
+                stroke_width=2,
+                method='caption'
+            )
+            
+            # Position both clips
+            y_pos = size[1] - 200 # 75px from bottom
+            normal_clip = normal_clip.set_position((current_x, y_pos))
+            highlight_clip = highlight_clip.set_position((current_x, y_pos))
+            
+            # Update x position for next word
+            current_x += word_widths[i] + 20  # Add spacing between words
+            
+            # Set timing for both clips
+            normal_clip = normal_clip.set_start(total_time + word_duration).set_duration(duration)
+            highlight_clip = highlight_clip.set_start(total_time).set_duration(word_duration)
+            
+            # Add both clips to the list
+            word_clips.extend([normal_clip, highlight_clip])
+            
+            # Update total time
+            total_time += word_duration
+        
+        # Create the final composite clip
+        final_clip = CompositeVideoClip(word_clips, size=size)
+        final_clip = final_clip.set_duration(duration)
+        
+        return final_clip
 
     def create_video(self, images: List[str], output_path: str,
                     duration_per_image: float = 2.0,
@@ -131,7 +190,7 @@ class VideoService:
             test_subtitles = [
                 "Welcome to the Wonderful World of Oz!",
                 "Follow the Yellow Brick Road",
-                "Subscibe you bastards"
+                "Subscribe you bastards"
             ]
             
             # Create subtitle clips
