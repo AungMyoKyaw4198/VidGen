@@ -3,3 +3,4 @@ src/video_gen/__pycache__
 src/video_gen/core/__pycache__
 src/video_gen/services/__pycache__
 src/video_gen/utils/__pycache__
+venv

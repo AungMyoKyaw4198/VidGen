@@ -6,9 +6,16 @@ import random
 from typing import List, Optional
 import numpy as np
 from PIL import Image
+# Add compatibility layer
+if not hasattr(Image, 'Resampling'):
+    Image.Resampling = type('Resampling', (), {'LANCZOS': Image.ANTIALIAS})
 from io import BytesIO
 import requests
-from moviepy.editor import ImageClip, concatenate_videoclips, CompositeVideoClip, vfx
+from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+from moviepy.video.VideoClip import ImageClip
+from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+from moviepy.video.fx import resize, fadein, fadeout
+from moviepy.editor import concatenate_videoclips, vfx
 
 from ..utils.config import Config
 
@@ -147,9 +154,9 @@ class VideoService:
         img = Image.fromarray(get_frame(t))
         base_size = img.size
         
-        # Random zoom parameters
+        # Slower zoom parameters
         zoom_start = 1.0
-        zoom_end = 1.15
+        zoom_end = 1.05  # Reduced zoom range for smoother effect
         zoom_ratio = zoom_start + (zoom_end - zoom_start) * (t / self.config.duration_per_image)
         
         # Calculate new size with zoom
@@ -165,13 +172,13 @@ class VideoService:
         # Resize image with zoom
         img = img.resize(new_size, Image.Resampling.LANCZOS)
         
-        # Random pan direction
+        # Slower pan direction
         pan_start_x = 0 if random.random() < 0.5 else (new_size[0] - base_size[0])
         pan_start_y = 0 if random.random() < 0.5 else (new_size[1] - base_size[1])
         pan_end_x = (new_size[0] - base_size[0]) if pan_start_x == 0 else 0
         pan_end_y = (new_size[1] - base_size[1]) if pan_start_y == 0 else 0
         
-        # Calculate current pan position
+        # Calculate current pan position with smoother interpolation
         current_x = pan_start_x + (pan_end_x - pan_start_x) * (t / self.config.duration_per_image)
         current_y = pan_start_y + (pan_end_y - pan_start_y) * (t / self.config.duration_per_image)
         
@@ -197,11 +204,10 @@ class VideoService:
             Final video clip with transitions
         """
         transitions = [
-            lambda c: c.crossfadein(transition_duration),
-            lambda c: c.fadein(transition_duration),
-            lambda c: c.fadeout(transition_duration),
-            lambda c: c.resize(lambda t: 1 + 0.1*t).crossfadein(transition_duration),
-            lambda c: c.resize(lambda t: 1.1 - 0.1*t).crossfadein(transition_duration),
+            lambda c: vfx.fadein(c, transition_duration),
+            lambda c: vfx.fadeout(c, transition_duration),
+            lambda c: vfx.fadein(vfx.resize(c, lambda t: 1 + 0.1*t), transition_duration),
+            lambda c: vfx.fadein(vfx.resize(c, lambda t: 1.1 - 0.1*t), transition_duration),
         ]
         
         final_clips = [clips[0]]
