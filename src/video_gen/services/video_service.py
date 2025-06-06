@@ -6,16 +6,23 @@ import random
 from typing import List, Optional
 import numpy as np
 from PIL import Image
+from moviepy.editor import concatenate_audioclips
 # Add compatibility layer
 if not hasattr(Image, 'Resampling'):
     Image.Resampling = type('Resampling', (), {'LANCZOS': Image.ANTIALIAS})
 from io import BytesIO
 import requests
 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
-from moviepy.video.VideoClip import ImageClip
+from moviepy.video.VideoClip import ImageClip, ColorClip
 from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 from moviepy.video.fx import resize, fadein, fadeout
-from moviepy.editor import concatenate_videoclips, vfx
+from moviepy.editor import concatenate_videoclips, vfx, AudioFileClip
+from pathlib import Path
+import os
+import time
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.audio.AudioClip import CompositeAudioClip
+import logging
 
 from ..utils.config import Config
 
@@ -68,12 +75,79 @@ class VideoService:
             # Comment out transitions for now
             # final_clip = self._apply_transitions(clips, transition_duration)
             final_clip = concatenate_videoclips(clips, method="compose")
+            
+            # Add audio to the video
+            final_clip = self._add_audio(final_clip)
+            
             self._write_video(final_clip, output_path)
             return True
 
         except Exception as e:
             print(f"Error creating video: {str(e)}")
             return False
+
+    def _add_audio(self, video_clip: ImageClip) -> ImageClip:
+        """Add background music and voice-over to the video.
+        
+        Args:
+            video_clip: The video clip to add audio to
+            
+        Returns:
+            Video clip with audio
+        """
+        try:
+            # Get video duration
+            video_duration = video_clip.duration
+            
+            # Load and process background audio
+            bg_audio_path = Path("audio/background_audio/background_audio1.mp3")
+            if bg_audio_path.exists():
+                bg_audio = AudioFileClip(str(bg_audio_path))
+                # Loop if shorter than video
+                if bg_audio.duration < video_duration:
+                    # Calculate how many times to loop
+                    n_loops = int(video_duration / bg_audio.duration) + 1
+                    # Create a list of the audio clip repeated n_loops times
+                    bg_audio = concatenate_audioclips([bg_audio] * n_loops)
+                # Cut if longer than video
+                bg_audio = bg_audio.subclip(0, video_duration)
+                # Set volume to 50%
+                bg_audio = bg_audio.volumex(0.5)
+            else:
+                print("Warning: Background audio file not found")
+                bg_audio = None
+            
+            # Load and process voice-over
+            voice_path = Path("audio/voice_over/voice_over1.mp3")
+            if voice_path.exists():
+                voice = AudioFileClip(str(voice_path))
+                # Loop if shorter than video
+                if voice.duration < video_duration:
+                    # Calculate how many times to loop
+                    n_loops = int(video_duration / voice.duration) + 1
+                    # Create a list of the audio clip repeated n_loops times
+                    voice = concatenate_audioclips([voice] * n_loops)
+                # Cut if longer than video
+                voice = voice.subclip(0, video_duration)
+            else:
+                print("Warning: Voice-over file not found")
+                voice = None
+            
+            # Combine audio tracks
+            if bg_audio and voice:
+                # Create a composite audio clip
+                final_audio = CompositeAudioClip([bg_audio, voice])
+                return video_clip.set_audio(final_audio)
+            elif bg_audio:
+                return video_clip.set_audio(bg_audio)
+            elif voice:
+                return video_clip.set_audio(voice)
+            else:
+                return video_clip
+            
+        except Exception as e:
+            print(f"Error adding audio: {str(e)}")
+            return video_clip
 
     def _create_clips(self, images: List[str], duration_per_image: float) -> List[ImageClip]:
         """Create video clips from images.
@@ -200,7 +274,7 @@ class VideoService:
             output_path,
             fps=24,
             codec='libx264',
-            audio=False,
+            audio=True,  # Enable audio
             threads=4,
             preset='medium'
         )
