@@ -13,7 +13,7 @@ if not hasattr(Image, 'Resampling'):
 from io import BytesIO
 import requests
 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
-from moviepy.video.VideoClip import ImageClip, ColorClip
+from moviepy.video.VideoClip import ImageClip, ColorClip, TextClip, VideoClip
 from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 from moviepy.video.fx import resize, fadein, fadeout
 from moviepy.editor import concatenate_videoclips, vfx, AudioFileClip
@@ -30,14 +30,17 @@ from ..utils.config import Config
 class VideoService:
     """Service for handling video operations."""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, fps: int = 30):
         """Initialize the video service.
         
         Args:
             config: Configuration object
+            fps: Frames per second for the video (default: 30)
         """
         self.config = config
+        self.fps = fps
         self._setup_dimensions()
+        self._setup_ffmpeg()
 
     def _setup_dimensions(self) -> None:
         """Set up video dimensions based on format."""
@@ -47,6 +50,42 @@ class VideoService:
         else:  # vertical format
             self.width = 1080
             self.height = 1920
+
+    def _setup_ffmpeg(self):
+        """Set up FFmpeg configuration."""
+        # ... existing code ...
+
+    def _create_subtitle_clip(self, text: str, duration: float, size: tuple) -> TextClip:
+        """Create a subtitle clip with the given text and duration.
+        
+        Args:
+            text: The subtitle text
+            duration: Duration of the subtitle
+            size: Size of the video (width, height)
+            
+        Returns:
+            TextClip: The subtitle clip
+        """
+        # Font size: 6% of video height (between 5% and 7%)
+        font_size = int(size[1] * 0.06)
+
+        # Subtitle vertical position: 75px from the bottom
+        subtitle_clip = TextClip(
+            text,
+            fontsize=font_size,
+            color='white',
+            font='Arial-Bold',
+            stroke_color='black',
+            stroke_width=2,
+            method='caption',
+            size=(size[0] * 0.9, None)  # Optional: wrap text slightly within screen width
+        )
+
+        subtitle_clip = subtitle_clip.set_position(('center', size[1] - 75))
+        subtitle_clip = subtitle_clip.set_duration(duration)
+
+        return subtitle_clip
+
 
     def create_video(self, images: List[str], output_path: str,
                     duration_per_image: float = 2.0,
@@ -67,21 +106,61 @@ class VideoService:
                 print("No images available to create video")
                 return False
 
-            clips = self._create_clips(images, duration_per_image)
-            if not clips:
-                print("No valid images to create video")
+            # Process images
+            processed_images = []
+            for img_path in images:
+                processed_img = self._process_image(img_path, duration=duration_per_image)
+                if processed_img is not None:
+                    processed_images.append(processed_img)
+            
+            if not processed_images:
+                print("No valid images to process")
                 return False
-
-            # Comment out transitions for now
-            # final_clip = self._apply_transitions(clips, transition_duration)
-            final_clip = concatenate_videoclips(clips, method="compose")
             
-            # Add audio to the video
-            final_clip = self._add_audio(final_clip)
+            # Create video clip using concatenate_videoclips
+            video_clip = concatenate_videoclips(processed_images, method="compose")
             
-            self._write_video(final_clip, output_path)
+            # Add audio
+            video_clip = self._add_audio(video_clip)
+            
+            # Create subtitles for each image
+            subtitle_clips = []
+            duration_per_image = video_clip.duration / len(processed_images)
+            
+            # Test subtitles for each image
+            test_subtitles = [
+                "Welcome to the Wonderful World of Oz!",
+                "Follow the Yellow Brick Road",
+                "Subscibe you bastards"
+            ]
+            
+            # Create subtitle clips
+            for i, subtitle in enumerate(test_subtitles):
+                start_time = i * duration_per_image
+                subtitle_clip = self._create_subtitle_clip(
+                    subtitle,
+                    duration_per_image,
+                    (video_clip.w, video_clip.h)
+                )
+                subtitle_clip = subtitle_clip.set_start(start_time)
+                subtitle_clips.append(subtitle_clip)
+            
+            # Combine video with subtitles
+            final_clip = CompositeVideoClip([video_clip] + subtitle_clips)
+            
+            # Write video file with verbose=False to suppress MoviePy's output
+            final_clip.write_videofile(output_path, 
+                                     fps=self.fps,
+                                     codec='libx264',
+                                     audio_codec='aac',
+                                     temp_audiofile='temp-audio.m4a',
+                                     remove_temp=True,
+                                     verbose=False,
+                                     logger=None)
+            
+            print(f"Video created successfully at: {output_path}")
             return True
-
+            
         except Exception as e:
             print(f"Error creating video: {str(e)}")
             return False
@@ -170,70 +249,94 @@ class VideoService:
                 continue
         return clips
 
-    def _process_image(self, img_url: str, duration: float) -> Optional[ImageClip]:
-        """Process a single image into a video clip with zoom and pan effects.
+    def _process_image(self, image_path: str, duration: float = 2.0) -> Optional[VideoClip]:
+        """Process a single image into a video clip.
         
         Args:
-            img_url: URL of the image
+            image_path: Path to the image file
             duration: Duration of the clip in seconds
             
         Returns:
-            Processed video clip or None if processing fails
+            Optional[VideoClip]: Processed video clip or None if processing fails
         """
-        response = requests.get(img_url)
-        img = Image.open(BytesIO(response.content))
-        
-        if img.mode == 'RGBA':
-            img = img.convert('RGB')
-        
-        img = self._resize_and_crop(img)
-        img_array = np.array(img)
-        clip = ImageClip(img_array).set_duration(duration)
-        
-        # Apply zoom effect
-        zoom_factor = 1.1  # Maximum zoom level
-        zoom_clip = clip.fx(vfx.resize, lambda t: 1 + (zoom_factor - 1) * t/duration)
-        
-        # Apply pan effect
-        # Randomly choose pan direction
-        pan_direction = random.choice(['left', 'right', 'up', 'down'])
-        
-        if pan_direction in ['left', 'right']:
-            # Horizontal pan
-            x_offset = lambda t: (t/duration) * (self.width * 0.1) if pan_direction == 'right' else -(t/duration) * (self.width * 0.1)
-            y_offset = lambda t: 0
-        else:
-            # Vertical pan
-            x_offset = lambda t: 0
-            y_offset = lambda t: (t/duration) * (self.height * 0.1) if pan_direction == 'down' else -(t/duration) * (self.height * 0.1)
-        
-        # Apply the pan effect
-        final_clip = zoom_clip.set_position(lambda t: (x_offset(t), y_offset(t)))
-        
-        return final_clip
+        try:
+            # Load and process image
+            response = requests.get(image_path)
+            img = Image.open(BytesIO(response.content))
+            
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
+            
+            # Resize and crop image
+            img = self._resize_and_crop(img)
+            
+            # Convert to numpy array and create clip
+            img_array = np.array(img)
+            clip = ImageClip(img_array).set_duration(duration)
+            
+            # Add zoom effect
+            zoom_factor = 1.2
+            zoom_duration = duration * 0.8
+            
+            def zoom(t):
+                if t < zoom_duration:
+                    return 1 + (zoom_factor - 1) * (t / zoom_duration)
+                return zoom_factor
+            
+            # Apply zoom effect
+            clip = clip.resize(lambda t: zoom(t))
+            
+            # Center the zoomed image
+            w, h = clip.size
+            zoomed_w = int(w * zoom_factor)
+            zoomed_h = int(h * zoom_factor)
+            x_offset = (zoomed_w - w) // 2
+            y_offset = (zoomed_h - h) // 2
+            
+            clip = clip.set_position((x_offset, y_offset))
+            
+            return clip
+            
+        except Exception as e:
+            print(f"Error processing image {image_path}: {str(e)}")
+            return None
 
     def _resize_and_crop(self, img: Image.Image) -> Image.Image:
-        """Resize and crop image to maintain aspect ratio.
+        """Resize and crop image to target dimensions.
         
         Args:
-            img: Input image
+            img: PIL Image to process
             
         Returns:
-            Processed image
+            Processed PIL Image
         """
-        img_ratio = img.width / img.height
-        target_ratio = self.width / self.height
+        # Get current dimensions
+        current_width, current_height = img.size
         
-        if img_ratio > target_ratio:  # Image is wider than target ratio
-            new_width = int(self.height * img_ratio)
-            img = img.resize((new_width, self.height), Image.Resampling.LANCZOS)
-            left = (img.width - self.width) // 2
-            img = img.crop((left, 0, left + self.width, self.height))
-        else:  # Image is taller than target ratio
-            new_height = int(self.width / img_ratio)
-            img = img.resize((self.width, new_height), Image.Resampling.LANCZOS)
-            top = (img.height - self.height) // 2
-            img = img.crop((0, top, self.width, top + self.height))
+        # Calculate target dimensions maintaining aspect ratio
+        target_ratio = self.width / self.height
+        current_ratio = current_width / current_height
+        
+        if current_ratio > target_ratio:
+            # Image is wider than target
+            new_width = int(current_height * target_ratio)
+            new_height = current_height
+            left = (current_width - new_width) // 2
+            top = 0
+            right = left + new_width
+            bottom = current_height
+        else:
+            # Image is taller than target
+            new_width = current_width
+            new_height = int(current_width / target_ratio)
+            left = 0
+            top = (current_height - new_height) // 2
+            right = current_width
+            bottom = top + new_height
+        
+        # Crop and resize
+        img = img.crop((left, top, right, bottom))
+        img = img.resize((self.width, self.height), Image.Resampling.LANCZOS)
         
         return img
 
