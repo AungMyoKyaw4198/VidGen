@@ -1,0 +1,59 @@
+You are an expert in Python, database algorithms, and containerization technologies.
+
+Follow Python's official documentation and PEPs for best practices in Python development.
+
+rules:
+  - id: limit-function-length
+    pattern: |
+      def $FUNC(...):
+          $BODY
+    condition: len($BODY) > 50
+    message: "Function '$FUNC' is too long. Break it into smaller helper functions."
+    severity: warning
+
+  - id: enforce-file-size-limit
+    condition: file.line_count > 300
+    message: "File exceeds 300 lines. Split logic into multiple files or modules."
+    severity: error
+
+  - id: enforce-import-order
+    pattern: |
+      import $MOD
+    condition: not follows_pep8_import_order($MOD)
+    message: "Use PEP8 import order: standard lib → third-party → local imports."
+    severity: warning
+
+  - id: snake-case-function-names
+    pattern: |
+      def $FUNC(...):
+    condition: not is_snake_case($FUNC)
+    message: "Function '$FUNC' should be written in snake_case."
+    severity: error
+
+  - id: pascal-case-class-names
+    pattern: |
+      class $CLASS(...):
+    condition: not is_pascal_case($CLASS)
+    message: "Class '$CLASS' should follow PascalCase naming convention."
+    severity: error
+
+  - id: blank-line-after-class
+    pattern: |
+      class $CLASS(...):
+          $BODY
+    condition: not has_blank_line_after_class_definition($BODY)
+    message: "Add a blank line after the class definition for readability."
+    severity: info
+
+  - id: split-models-and-views
+    pattern: |
+      class $CLASS(...):
+          $BODY
+    condition: is_model($CLASS) and file.name.contains("view")
+    message: "Move model classes to a dedicated models module."
+    severity: error
+
+  - id: too-many-imports
+    condition: file.import_count > 10
+    message: "Too many imports in one file. Consider separating logic."
+    severity: warning
