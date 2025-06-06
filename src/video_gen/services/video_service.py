@@ -65,7 +65,9 @@ class VideoService:
                 print("No valid images to create video")
                 return False
 
-            final_clip = self._apply_transitions(clips, transition_duration)
+            # Comment out transitions for now
+            # final_clip = self._apply_transitions(clips, transition_duration)
+            final_clip = concatenate_videoclips(clips, method="compose")
             self._write_video(final_clip, output_path)
             return True
 
@@ -95,7 +97,7 @@ class VideoService:
         return clips
 
     def _process_image(self, img_url: str, duration: float) -> Optional[ImageClip]:
-        """Process a single image into a video clip.
+        """Process a single image into a video clip with zoom and pan effects.
         
         Args:
             img_url: URL of the image
@@ -112,9 +114,29 @@ class VideoService:
         
         img = self._resize_and_crop(img)
         img_array = np.array(img)
-        clip = ImageClip(img_array)
+        clip = ImageClip(img_array).set_duration(duration)
         
-        return clip.fl(self._create_zoom_pan_effect).set_duration(duration)
+        # Apply zoom effect
+        zoom_factor = 1.1  # Maximum zoom level
+        zoom_clip = clip.fx(vfx.resize, lambda t: 1 + (zoom_factor - 1) * t/duration)
+        
+        # Apply pan effect
+        # Randomly choose pan direction
+        pan_direction = random.choice(['left', 'right', 'up', 'down'])
+        
+        if pan_direction in ['left', 'right']:
+            # Horizontal pan
+            x_offset = lambda t: (t/duration) * (self.width * 0.1) if pan_direction == 'right' else -(t/duration) * (self.width * 0.1)
+            y_offset = lambda t: 0
+        else:
+            # Vertical pan
+            x_offset = lambda t: 0
+            y_offset = lambda t: (t/duration) * (self.height * 0.1) if pan_direction == 'down' else -(t/duration) * (self.height * 0.1)
+        
+        # Apply the pan effect
+        final_clip = zoom_clip.set_position(lambda t: (x_offset(t), y_offset(t)))
+        
+        return final_clip
 
     def _resize_and_crop(self, img: Image.Image) -> Image.Image:
         """Resize and crop image to maintain aspect ratio.
@@ -141,82 +163,31 @@ class VideoService:
         
         return img
 
-    def _create_zoom_pan_effect(self, get_frame, t: float) -> np.ndarray:
-        """Create zoom and pan effect for video frames.
-        
-        Args:
-            get_frame: Function to get frame at time t
-            t: Current time in seconds
-            
-        Returns:
-            Processed frame as numpy array
-        """
-        img = Image.fromarray(get_frame(t))
-        base_size = img.size
-        
-        # Slower zoom parameters
-        zoom_start = 1.0
-        zoom_end = 1.05  # Reduced zoom range for smoother effect
-        zoom_ratio = zoom_start + (zoom_end - zoom_start) * (t / self.config.duration_per_image)
-        
-        # Calculate new size with zoom
-        new_size = [
-            math.ceil(img.size[0] * zoom_ratio),
-            math.ceil(img.size[1] * zoom_ratio)
-        ]
-        
-        # Ensure dimensions are even
-        new_size[0] = new_size[0] + (new_size[0] % 2)
-        new_size[1] = new_size[1] + (new_size[1] % 2)
-        
-        # Resize image with zoom
-        img = img.resize(new_size, Image.Resampling.LANCZOS)
-        
-        # Slower pan direction
-        pan_start_x = 0 if random.random() < 0.5 else (new_size[0] - base_size[0])
-        pan_start_y = 0 if random.random() < 0.5 else (new_size[1] - base_size[1])
-        pan_end_x = (new_size[0] - base_size[0]) if pan_start_x == 0 else 0
-        pan_end_y = (new_size[1] - base_size[1]) if pan_start_y == 0 else 0
-        
-        # Calculate current pan position with smoother interpolation
-        current_x = pan_start_x + (pan_end_x - pan_start_x) * (t / self.config.duration_per_image)
-        current_y = pan_start_y + (pan_end_y - pan_start_y) * (t / self.config.duration_per_image)
-        
-        # Crop the image at current pan position
-        img = img.crop([
-            int(current_x), int(current_y),
-            int(current_x + base_size[0]), int(current_y + base_size[1])
-        ]).resize(base_size, Image.Resampling.LANCZOS)
-        
-        result = np.array(img)
-        img.close()
-        return result
-
-    def _apply_transitions(self, clips: List[ImageClip], 
-                         transition_duration: float) -> ImageClip:
-        """Apply transitions between video clips.
-        
-        Args:
-            clips: List of video clips
-            transition_duration: Duration of transitions in seconds
-            
-        Returns:
-            Final video clip with transitions
-        """
-        transitions = [
-            lambda c: vfx.fadein(c, transition_duration),
-            lambda c: vfx.fadeout(c, transition_duration),
-            lambda c: vfx.fadein(vfx.resize(c, lambda t: 1 + 0.1*t), transition_duration),
-            lambda c: vfx.fadein(vfx.resize(c, lambda t: 1.1 - 0.1*t), transition_duration),
-        ]
-        
-        final_clips = [clips[0]]
-        for clip in clips[1:]:
-            transition_func = random.choice(transitions)
-            clip_with_transition = transition_func(clip)
-            final_clips.append(clip_with_transition)
-        
-        return concatenate_videoclips(final_clips, method="compose")
+    # def _apply_transitions(self, clips: List[ImageClip], 
+    #                      transition_duration: float) -> ImageClip:
+    #     """Apply transitions between video clips.
+    #     
+    #     Args:
+    #         clips: List of video clips
+    #         transition_duration: Duration of transitions in seconds
+    #         
+    #     Returns:
+    #         Final video clip with transitions
+    #     """
+    #     transitions = [
+    #         lambda c: vfx.fadein(c, transition_duration),
+    #         lambda c: vfx.fadeout(c, transition_duration),
+    #         lambda c: vfx.fadein(vfx.resize(c, lambda t: 1 + 0.1*t), transition_duration),
+    #         lambda c: vfx.fadein(vfx.resize(c, lambda t: 1.1 - 0.1*t), transition_duration),
+    #     ]
+    #     
+    #     final_clips = [clips[0]]
+    #     for clip in clips[1:]:
+    #         transition_func = random.choice(transitions)
+    #         clip_with_transition = transition_func(clip)
+    #         final_clips.append(clip_with_transition)
+    #     
+    #     return concatenate_videoclips(final_clips, method="compose")
 
     def _write_video(self, final_clip: ImageClip, output_path: str) -> None:
         """Write the final video to file.
