@@ -56,7 +56,7 @@ class VideoService:
         # ... existing code ...
 
     def _create_subtitle_clip(self, text: str, duration: float, size: tuple) -> VideoClip:
-        """Create an animated subtitle clip where each word is highlighted sequentially.
+        """Create a subtitle clip with centered text.
         
         Args:
             text: The subtitle text
@@ -64,12 +64,34 @@ class VideoService:
             size: Size of the video (width, height)
             
         Returns:
-            VideoClip: The animated subtitle clip
+            VideoClip: The subtitle clip
         """
-        # Calculate font sizes
-        base_fontsize = int(size[1] * 0.06)  # 6% of video height
-        highlight_fontsize = int(size[1] * 0.13)  # 13% of video height
+        # Calculate font size
+        fontsize = int(size[1] * 0.10)  # 10% of video height
         
+        # Create text clip
+        text_clip = TextClip(
+            text,
+            fontsize=fontsize,
+            color='white',
+            font='Impact',
+            stroke_color='black',
+            stroke_width=3,
+            method='caption'
+        )
+        
+        # Center the text both horizontally and vertically
+        x_pos = (size[0] - text_clip.w) // 2
+        y_pos = (size[1] - text_clip.h) // 2
+        
+        # Position the clip
+        text_clip = text_clip.set_position((x_pos, y_pos))
+        text_clip = text_clip.set_duration(duration)
+        
+        return text_clip
+
+        # Commented out highlight functionality for now
+        """
         # Split text into words
         words = text.split()
         word_duration = 0.2  # 200ms per word
@@ -83,7 +105,7 @@ class VideoService:
             temp_clip = TextClip(
                 word,
                 fontsize=base_fontsize,
-                font='Arial-Bold',
+                font='Impact',
                 method='caption'
             )
             word_widths.append(temp_clip.w)
@@ -105,9 +127,9 @@ class VideoService:
                 word,
                 fontsize=base_fontsize,
                 color='white',
-                font='Arial-Bold',
+                font='Impact',
                 stroke_color='black',
-                stroke_width=2,
+                stroke_width=3,
                 method='caption'
             )
             
@@ -116,14 +138,14 @@ class VideoService:
                 word,
                 fontsize=highlight_fontsize,
                 color='yellow',
-                font='Arial-Bold',
+                font='Impact',
                 stroke_color='black',
-                stroke_width=2,
+                stroke_width=3,
                 method='caption'
             )
             
             # Position both clips
-            y_pos = size[1] - 200 # 75px from bottom
+            y_pos = size[1] - 200  # 200px from bottom
             normal_clip = normal_clip.set_position((current_x, y_pos))
             highlight_clip = highlight_clip.set_position((current_x, y_pos))
             
@@ -145,6 +167,7 @@ class VideoService:
         final_clip = final_clip.set_duration(duration)
         
         return final_clip
+        """
 
     def create_video(self, images: List[str], output_path: str,
                     duration_per_image: float = 2.0,
