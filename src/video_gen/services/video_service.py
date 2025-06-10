@@ -17,6 +17,7 @@ from moviepy.video.VideoClip import ImageClip, ColorClip, TextClip, VideoClip
 from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 from moviepy.video.fx import resize, fadein, fadeout
 from moviepy.editor import concatenate_videoclips, vfx, AudioFileClip
+from moviepy.editor import VideoFileClip
 from pathlib import Path
 import os
 import time
@@ -172,7 +173,7 @@ class VideoService:
     def create_video(self, images: List[str], output_path: str,
                     duration_per_image: float = 2.0,
                     transition_duration: float = 1.0) -> bool:
-        """Create video from images with transitions.
+        """Create video from images with transitions and YouTube clips.
         
         Args:
             images: List of image URLs
@@ -199,8 +200,84 @@ class VideoService:
                 print("No valid images to process")
                 return False
             
+            # Try to add YouTube clips if API key is available
+            youtube_clips = []
+            youtube_api_key = os.getenv('YOUTUBE_API_KEY')
+            
+            if youtube_api_key:
+                try:
+                    print("\nInitializing YouTube service...")
+                    # Initialize YouTube service
+                    from .youtube_service import YouTubeService
+                    youtube_service = YouTubeService(api_key=youtube_api_key)
+                    
+                    # Search for YouTube videos
+                    print("Searching for YouTube videos...")
+                    videos = youtube_service.search_videos(
+                        keywords="CR7 vacation training",
+                        max_results=3,
+                        max_duration=60,
+                        min_views=1000
+                    )
+                    
+                    print(f"Found {len(videos)} videos")
+                    
+                    # Print found videos
+                    if videos:
+                        print("\nFound YouTube videos:")
+                        for video in videos:
+                            print(f"- {video['title']} ({video['duration']}s, {video['views']} views)")
+                            print(f"  URL: {video['url']}")
+                        
+                        # Download and process YouTube clips
+                        print("\nProcessing YouTube clips...")
+                        for i, video in enumerate(videos, 1):
+                            print(f"\nProcessing video {i}/{len(videos)}")
+                            # Download video
+                            print(f"Downloading: {video['title']}")
+                            video_path = youtube_service.download_video(video['url'])
+                            if video_path:
+                                print("Download successful")
+                                # Extract 5-second clip
+                                print("Extracting 5-second clip...")
+                                clip_path = youtube_service.extract_clip(
+                                    video_path,
+                                    duration=5,
+                                    start_time=None  # Start from middle
+                                )
+                                if clip_path:
+                                    print("Clip extraction successful")
+                                    # Load clip
+                                    print("Loading clip...")
+                                    clip = VideoFileClip(clip_path)
+                                    # Resize to match video dimensions
+                                    print("Resizing clip...")
+                                    clip = clip.resize(width=processed_images[0].w)
+                                    youtube_clips.append(clip)
+                                    print("Clip added to final video")
+                            else:
+                                print("Download failed")
+                    
+                    # Clean up YouTube temporary files
+                    print("\nCleaning up temporary files...")
+                    youtube_service.cleanup()
+                    
+                except Exception as e:
+                    print(f"\nWarning: Could not process YouTube videos: {str(e)}")
+                    print("Continuing with image-only video...")
+            
             # Create video clip using concatenate_videoclips
             video_clip = concatenate_videoclips(processed_images, method="compose")
+            
+            # Add YouTube clips between images if available
+            if youtube_clips:
+                final_clips = []
+                for i, img_clip in enumerate(processed_images):
+                    final_clips.append(img_clip)
+                    if i < len(youtube_clips):
+                        final_clips.append(youtube_clips[i])
+                
+                video_clip = concatenate_videoclips(final_clips, method="compose")
             
             # Add audio
             video_clip = self._add_audio(video_clip)
@@ -240,7 +317,12 @@ class VideoService:
                                      verbose=False,
                                      logger=None)
             
-            print(f"Video created successfully at: {output_path}")
+            # Close all clips
+            for clip in youtube_clips:
+                clip.close()
+            final_clip.close()
+            
+            print(f"\nVideo created successfully at: {output_path}")
             return True
             
         except Exception as e:

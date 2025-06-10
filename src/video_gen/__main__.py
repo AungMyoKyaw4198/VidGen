@@ -1,6 +1,9 @@
 """
 Main entry point for the video generator.
 """
+from dotenv import load_dotenv
+load_dotenv()
+
 import argparse
 from pathlib import Path
 
