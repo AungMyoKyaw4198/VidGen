@@ -72,6 +72,14 @@ You can set these in a `.env` file:
 GOOGLE_API_KEY=your_api_key_here
 GOOGLE_CX=your_cx_here
 ```
+As of 2017 (this may be outdated in the future), here are the steps:
+1) After getting the API key (under Custom Search API) 
+https://console.cloud.google.com/apis/dashboard?inv=1&invt=AbzwVw&project=vidgen-1749190468011
+2) Head to CSE home
+https://programmablesearchengine.google.com/controlpanel/all
+3) Click on Add below Edit Search Engine
+4) You'll get a search box, type in www.google.com and then click on Create at the bottom
+5) You'll get your cx code (called Search Engine ID) to use with your API key
 
 ## Extending Functionality
 - **Script Generation**: Implement in `VideoGenerator.generate_script()` (e.g., using OpenAI API)
